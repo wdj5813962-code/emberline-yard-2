@@ -37,7 +37,9 @@ right-click zoom (sniper).
 
 ## Entry
 
-Built for the make.fun threejs-fps-01 bounty. `main.ts` copies `game/` and
+Built for the make.fun threejs-fps-02 bounty. `main.ts` copies `game/` and
 `screenshots/` to `/output` and writes `/output/dossier.json`.
 
-[![make.fun](https://make.fun/badge/owner/wdj5813962-code/repo/emberline-yard-2?ref=vx2eyc9v)](https://make.fun/bounty/threejs-fps-01)
+[![make.fun · threejs-fps-02](https://make.fun/badge/threejs-fps-02.svg)](https://make.fun/bounty/threejs-fps-02?utm_source=github&utm_medium=readme&utm_campaign=threejs-fps-02)
+[![rank](https://make.fun/badge/threejs-fps-02/wdj5813962-code/emberline-yard-2/rank.svg)](https://make.fun/bounty/threejs-fps-02/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=threejs-fps-02)
+[![reward](https://make.fun/badge/threejs-fps-02/wdj5813962-code/emberline-yard-2/reward.svg)](https://make.fun/bounty/threejs-fps-02?utm_source=github&utm_medium=readme&utm_campaign=threejs-fps-02)
