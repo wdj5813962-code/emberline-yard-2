@@ -74,6 +74,15 @@
   #damage { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px 30px rgba(224, 72, 62, 0.55); opacity: 0; transition: opacity 120ms linear; }
   #damage.on { opacity: 1; }
 
+  /* The damage-direction marker: a red triangle on a ring around the
+     crosshair, rotated to the side the damage came from. The wrapper is a
+     0x0 point at screen centre; the triangle sits 110px above it and the
+     wrapper's rotation carries it around the ring. Apex points outward
+     (away from the crosshair, toward the threat). Visible for 600 ms. */
+  #damage-dir { position: fixed; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; transition: opacity 150ms linear; }
+  #damage-dir.on { opacity: 1; }
+  #damage-dir i { position: absolute; left: -14px; top: -110px; border-left: 14px solid transparent; border-right: 14px solid transparent; border-bottom: 22px solid var(--danger); }
+
   #ammo {
     position: fixed;
     right: 32px;
@@ -289,10 +298,19 @@
 <body>
 <div id="game"></div>
 
+<!-- THE HUD LAYER. #hud holds the in-game display and is pointer-events
+     none, so it never intercepts a click: crosshair and hitmarker at
+     centre, damage flash over everything, topbar (timer, score, alive,
+     money, bomb status) at top centre, kill feed at top right, banner
+     below the topbar, plant bar at 58%, health at bottom left, weapon
+     name and ammo at bottom right. Every element has an id the HUD module
+     reads; the HTML is the structure, hud.js is the behaviour, and the
+     CSS is the look — the three never mix. -->
 <div id="hud" aria-hidden="true">
   <div id="crosshair"><i></i><i></i><i></i><i></i></div>
   <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
   <div id="damage"></div>
+  <div id="damage-dir"><i></i></div>
   <div id="topbar">
     <span id="timer-value">Buy 0:15</span>
     <span>Score <b id="score-value">0 — 0</b></span>
@@ -315,6 +333,12 @@
   <div id="ammo"><span id="ammo-mag">12</span><span id="ammo-reserve">/ 36</span></div>
 </div>
 
+<!-- THE BUY MENU. Four buttons, one per buyable (rifle, SMG, sniper,
+     grenade), each with a name, a stat line and an amber price, plus the
+     current money and the key hint. The buttons carry data-buy, so the HUD
+     reads the purchase from the click target instead of wiring four
+     handlers. The menu is hidden by default and shown only in the buy
+     phase; it is the one HUD layer with pointer-events on. -->
 <div id="buy-menu" hidden>
   <section class="buy-panel" role="dialog" aria-modal="true" aria-labelledby="buy-title">
     <h2 id="buy-title">Buy weapons</h2>
@@ -329,6 +353,12 @@
   </section>
 </div>
 
+<!-- THE OVERLAY. One panel, four modes (start, paused, round end, match
+     end): a title, a line of copy, the play button, and the key list.
+     The overlay is the game's front door and its pause screen — the first
+     thing the player sees and the thing that returns whenever pointer
+     lock is lost. The key list is the whole control scheme in nine lines,
+     so a new player never needs to leave the game to learn it. -->
 <div id="overlay" class="overlay">
   <section class="panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
     <h1 id="overlay-title">Emberline Yard</h1>
@@ -349,6 +379,11 @@
   </section>
 </div>
 
+<!-- BOOT. The import map pins "three" to the vendored module build, and
+     main.js is the only script: everything else is imported by it. No
+     other script runs on this page, no font is fetched, no analytics —
+     the page is the game and nothing else, so it loads the same offline
+     as online. -->
 <script type="importmap">
 {
   "imports": {

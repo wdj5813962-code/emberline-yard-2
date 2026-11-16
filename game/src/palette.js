@@ -28,6 +28,9 @@ export const PALETTE = {
   accent: '#f0a830',
 };
 
+// shade — the palette accessor: one function, one name in, one colour out.
+// The game never hard-codes a colour; it asks the palette, so the whole
+// look can be retuned by editing six values in one place.
 export function shade(name) {
   return PALETTE[name];
 }

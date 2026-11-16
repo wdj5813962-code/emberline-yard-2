@@ -76,6 +76,15 @@
 import * as THREE from 'three';
 import { PALETTE } from './palette.js';
 
+// THE CONSTANTS — every bot number in one place, so difficulty is one
+// edit, not a hunt. HEALTH 100 (three rifle body shots, four with the
+// falloff); BOT_SPEED 3.4 (slower than the player's 5.2, so the player
+// can always disengage); VISION_RANGE 45 and VISION_HALF_ANGLE 0.87 (the
+// 100-degree cone); VISION_CHECK 0.15 (the stagger); BURST 3–5 with a
+// 0.55 s gap and a 0.13 s shot gap; REACTION 0.45 (the player's beat);
+// SPREAD 0.035 + 0.02 moving; DAMAGE 30/85; FALLOFF 25–45 m halved. Change
+// one number and the whole difficulty moves with it — that is the point
+// of keeping them here instead of in the code.
 const HEALTH = 100;
 const BOT_SPEED = 3.4;
 const BOT_SPRINT = 4.2;
@@ -106,7 +115,6 @@ export function createBots(scene, colliders, shootables, random) {
   const toEnemy = new THREE.Vector3();
   const forward = new THREE.Vector3();
 
-  const bodyMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color(PALETTE.ink), roughness: 0.6, metalness: 0.05 });
   const headMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color(PALETTE.accent), roughness: 0.45, metalness: 0.1 });
   const standMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color(PALETTE.hairline), roughness: 0.85 });
   const torsoGeometry = new THREE.BoxGeometry(0.52, 0.78, 0.3);
@@ -116,7 +124,14 @@ export function createBots(scene, colliders, shootables, random) {
   const bots = [];
   const hitMeshes = [];
 
-  function makeBot(team, name, spawn, route) {
+  // makeBot — build one bot: a group at its spawn with two legs, a torso
+// (team colour) and a head (amber), an arm held forward like a rifle, all
+// meshes casting and receiving shadows. The torso and head carry userData
+// (part + a back-reference to the bot) so a raycast hit can say which bot
+// and which part was hit. The bot's route is copied, not shared, so
+// rerouting one bot (on plant) never reroutes another. Vision is
+// staggered by a random offset so not every bot raycasts on the same step.
+function makeBot(team, name, spawn, route) {
     const color = TEAM_COLORS[team];
     const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05 });
     const group = new THREE.Group();
@@ -154,7 +169,6 @@ export function createBots(scene, colliders, shootables, random) {
       burstLeft: 0, shotTimer: 0, burstTimer: 0,
       scanAngle: 0, scanDir: 1,
       fall: 0, walkPhase: 0,
-      hearing: null,
     };
     torso.userData.bot = bot;
     head.userData.bot = bot;
@@ -163,7 +177,12 @@ export function createBots(scene, colliders, shootables, random) {
     return bot;
   }
 
-  function damage(bot, amount, part) {
+  // damage — hurt a bot and say whether it died. Damage is refused on a
+// dead bot (a corpse cannot be killed twice, so a grenade and a bullet in
+// the same step cannot double-count a kill). On death the bot's state
+// becomes dead and its fall animation starts from zero; the caller (main.js)
+// owns the kill feed, the money and the sound.
+function damage(bot, amount, part) {
     if (!bot.alive) return false;
     bot.health -= amount;
     if (bot.health > 0) return false;
@@ -175,7 +194,14 @@ export function createBots(scene, colliders, shootables, random) {
 
   // Line of sight: a ray from the bot's eyes to the enemy's chest, blocked only
   // by the world's shootables (not by other bots). Returns the distance, or -1.
-  function lineOfSight(from, to) {
+  // lineOfSight — a ray from a position's eyes (y + 1.5) to a target's chest
+// (y + 1.2), blocked only by the world's shootables. Returns the distance,
+// or −1 when blocked or out of the 45 m vision range. The 0.4 m slack on
+// the blocking test keeps a ray that grazes a crate edge from counting as
+// blocked — a bot at the edge of cover can still be seen, which is fair,
+// because the player can be seen the same way. Only the world blocks: other
+// bots never block sight, so a bot can see past a teammate.
+function lineOfSight(from, to) {
     eye.set(from.x, from.y + 1.5, from.z);
     toEnemy.set(to.x - eye.x, to.y + 1.2 - eye.y, to.z - eye.z);
     const dist = toEnemy.length();
@@ -187,7 +213,12 @@ export function createBots(scene, colliders, shootables, random) {
     return dist;
   }
 
-  function canSee(bot, enemyPos) {
+  // canSee — the full vision test: range first (cheap), then the cone (a dot
+// product against the bot's forward, compared with cos(0.87) for the
+// 100-degree field), then the line-of-sight ray (expensive, and only run
+// when the first two pass). Returns the distance, or −1. The order matters:
+// the ray is the expensive part, so it runs last and least.
+function canSee(bot, enemyPos) {
     const dx = enemyPos.x - bot.position.x;
     const dz = enemyPos.z - bot.position.z;
     const dist = Math.hypot(dx, dz);
@@ -199,7 +230,18 @@ export function createBots(scene, colliders, shootables, random) {
   }
 
   // The bot's step: move, look, and shoot. Called once per fixed step by main.js.
-  function stepBot(bot, dt, time, enemies, onShoot) {
+  // stepBot — one bot's mind, once per fixed step. Dead bots only fall.
+// The living scan on a staggered 0.15 s timer and take the first visible
+// enemy as their target (re-acquiring every scan, so a bot that loses sight
+// drops the target and a bot that gains sight picks it up within 0.15 s).
+// In combat the bot faces the target and fires in bursts after the 0.45 s
+// reaction delay; the burst counter and the pause between bursts are what
+// make bot fire survivable. Out of combat the bot walks its route at
+// 3.4 m/s (waypoint reached within 0.6 m) or, at the end of the route,
+// holds and scans. The rotate state is not a branch here: main.js rewrites
+// the bot's route on plant, and the move branch walks the new route —
+// rotation is a route, not a mode.
+function stepBot(bot, dt, time, enemies, onShoot) {
     if (!bot.alive) {
       bot.fall = Math.min(1, bot.fall + dt / 0.4);
       bot.group.rotation.x = -bot.fall * 1.45;
@@ -276,7 +318,14 @@ export function createBots(scene, colliders, shootables, random) {
     }
   }
 
-  function applyVisuals(bot, dt) {
+  // applyVisuals — the body's pose follows its state: yaw always, legs
+// swinging with the walk phase while moving (opposite phases, 0.5 rad
+// amplitude), legs reset to zero while holding, fighting or dead. The
+// fall animation is not here — stepBot drives rotation.x directly, so a
+// dead bot keeps falling even though its state is dead and its legs are
+// still. Visuals are kept apart from the mind on purpose: the mind decides
+// in stepBot, the body shows it here, and neither can break the other.
+function applyVisuals(bot, dt) {
     bot.group.rotation.y = bot.yaw;
     if (bot.state === 'move' && bot.alive) {
       bot.legL.rotation.x = Math.sin(bot.walkPhase) * 0.5;
@@ -296,7 +345,11 @@ export function createBots(scene, colliders, shootables, random) {
     applyVisuals,
     lineOfSight,
     // Bot shooting: a hitscan shot with spread and falloff, resolved by main.js.
-    shotDamage(dist, part) {
+    // shotDamage — a bot's damage at a distance: 30 body / 85 head up close,
+// halved linearly from 25 m to 45 m. The falloff is what makes a bot
+// dangerous up close and a nuisance at range — and what makes the player's
+// rifle (no falloff, 90 m range) the long-lane answer to a holding bot.
+shotDamage(dist, part) {
       let dmg = part === 'head' ? DAMAGE_HEAD : DAMAGE_BODY;
       if (dist > FALLOFF_START) {
         const t = Math.min(1, (dist - FALLOFF_START) / (FALLOFF_END - FALLOFF_START));
@@ -304,10 +357,21 @@ export function createBots(scene, colliders, shootables, random) {
       }
       return dmg;
     },
-    shotSpread(moving) {
+    // shotSpread — a bot's spread cone: 0.035 rad standing, 0.055 rad moving.
+// Moving bots shoot worse, so a bot pushing a lane is less accurate than
+// one holding an angle — the same rule the player's spread follows, with
+// wider numbers, because a bot that shot like a player would be
+// unbeatable.
+shotSpread(moving) {
       return SPREAD + (moving ? SPREAD_MOVE : 0);
     },
-    reset(spawns) {
+    // reset — restore every bot for a new round. NOTE: no caller uses this
+// today — main.js's resetRoundPositions performs the reset inline with
+// fresh routes. It is kept so the module exposes a complete reset
+// operation: alive, full health, moving, waypoint zero, no target, no
+// fall, upright, back at its spawn. The spawn list is positional: bot i
+// goes to spawns[i], so the caller must pass spawns in creation order.
+reset(spawns) {
       for (let i = 0; i < bots.length; i += 1) {
         const bot = bots[i];
         bot.alive = true;
@@ -322,7 +386,10 @@ export function createBots(scene, colliders, shootables, random) {
         if (spawns && spawns[i]) bot.position.copy(spawns[i]);
       }
     },
-    aliveCount(team) {
+    // aliveCount — how many bots of a team are still alive. main.js adds the
+// player for the attackers (the player is the fourth attacker) and reads
+// this every step for the alive counts and the elimination check.
+aliveCount(team) {
       return bots.filter((b) => b.team === team && b.alive).length;
     },
   };

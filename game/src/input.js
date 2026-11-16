@@ -31,6 +31,22 @@
 // B buy menu, Shift walk (slow, accurate). Edge-triggered keys (pressed this
 // frame, not held) are reported through pressed(), so a tap of B opens the menu
 // once instead of every frame.
+// createInput — wire the listeners once and return the handle. Keydown
+// and keyup maintain the held set and the pressed set; blur clears the
+// held set; mousemove accumulates look while locked; mousedown/up set
+// firing (left) and aiming (right); contextmenu is suppressed; and
+// pointerlockchange updates the locked flag, clears the keys on unlock,
+// and reports through onLockChange. The canvas is only used for
+// requestPointerLock — the listeners are on window and document, so a
+// key pressed while the HUD has focus still reaches the game.
+// THE BINDINGS — the whole control scheme in one place. WASD moves, Space
+// jumps, Ctrl or C crouches, Shift walks (a slow, quiet walk for holding
+// an angle), mouse looks, left click fires, right click aims (and zooms
+// the sniper), R reloads, 1/2/3 switch weapons, G throws the grenade,
+// E plants and defuses (held), B opens the buy menu in the buy phase,
+// Esc pauses (by releasing the pointer). The bindings are read by the
+// input module, and the overlay lists them, so the two can never drift
+// apart.
 export function createInput(canvas, onLockChange) {
   const keys = new Set();
   const pressedKeys = new Set();
@@ -75,10 +91,19 @@ export function createInput(canvas, onLockChange) {
 
   return {
     state,
-    requestLock() {
+    // requestLock / clearPressed — the two small verbs: ask the canvas for
+// pointer lock (the click that starts play), and clear the edge-triggered
+// set (used when the round resets, so a key pressed in the last frame of
+// one round cannot fire an action in the first frame of the next).
+requestLock() {
       canvas.requestPointerLock();
     },
-    takeLook() {
+    // takeLook — the mouse movement since the last frame, as a pair, zeroed
+// on read. Accumulating into lookX/lookY and draining once per frame is
+// what keeps the look smooth at any frame rate: ten small mousemove
+// events become one look delta, and a frame that runs long still turns
+// the same total amount.
+takeLook() {
       const x = state.lookX;
       const y = state.lookY;
       state.lookX = 0;
@@ -86,7 +111,12 @@ export function createInput(canvas, onLockChange) {
       return { x, y };
     },
     // Edge-triggered: true once for the frame the key went down, then false.
-    pressed(code) {
+    // pressed — the edge trigger: true once for the frame the key went down,
+// then false until the next press. Held keys are read from the set every
+// step; tapped keys (buy, grenade, reload, weapon slots) are read through
+// here, so a tap is one action and a hold is not a hundred. The key is
+// removed when read, so two readers cannot both consume one press.
+pressed(code) {
       if (pressedKeys.has(code)) {
         pressedKeys.delete(code);
         return true;

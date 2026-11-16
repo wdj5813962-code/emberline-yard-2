@@ -24,6 +24,13 @@ const portIndex = args.indexOf('--port');
 const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
 const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
 
+// The MIME table: module scripts need text/javascript (a .js served as
+// text/plain will not run as a module), .glb is there for models even
+// though this entry ships none (the game is all primitives, by design),
+// and images and audio are there because the screenshots and the sounds
+// are the only other bytes the game serves. A wrong MIME here is a silent
+// failure — the game loads, the module does not — so the table is explicit
+// instead of guessed.
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',

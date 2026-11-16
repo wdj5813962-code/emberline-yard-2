@@ -68,6 +68,12 @@ import * as THREE from 'three';
 import { PALETTE } from './palette.js';
 
 // The two bomb sites, as ground pads. A plant only counts inside one of these.
+// SITES — the two bomb sites as ground pads. A is the warehouse (west,
+// x −18, z −12), B is the depot (east, x 18, z −12). The 4.5 m radius is
+// the plant zone: generous enough that the channel rarely fails on
+// positioning, small enough that the planter must commit to the site.
+// The sites are symmetric (mirrored x), so neither team has a closer site
+// and the choice of A or B is tactical, not geographical.
 export const SITES = {
   A: { name: 'A', center: new THREE.Vector3(-18, 0, -12), radius: 4.5 },
   B: { name: 'B', center: new THREE.Vector3(18, 0, -12), radius: 4.5 },
@@ -75,6 +81,12 @@ export const SITES = {
 
 // Spawns. Attackers start south, defenders north. Each spawn is a list of
 // positions so teammates do not stack on one point.
+// SPAWNS — attackers south, defenders north, each a list so teammates do
+// not stack on one point. The attacker list is the player plus three bots:
+// the player takes [0] and the bots take [1..3]. The defender list is
+// four bots, two per site. Spawns sit behind cover (the attacker spawn
+// walls, the site pockets) so the first seconds of a round are movement,
+// not a firing line.
 export const SPAWNS = {
   attackers: [
     new THREE.Vector3(-3, 0, 16),
@@ -93,6 +105,14 @@ export const SPAWNS = {
 // Bot routes: waypoint lists from a spawn to a site. A bot walks its route,
 // pauses at the end, and holds. The routes use the lanes, so bots actually
 // play the map instead of cutting across the mid yard in a straight line.
+// ROUTES — the bot playbook. Attackers push from south spawn to a site
+// along the lanes (toA down A-long, toB down B-long, toMid through the
+// yard); defenders walk from north spawn to their site and hold. The
+// rotate routes cross mid from one site to the other and are only used
+// when the bomb is planted — a defender that rotates runs the rotate
+// route, not a straight line through the walls. Every waypoint is in open
+// ground, because bots do not collide: a route that crossed a crate would
+// walk through it, and the map would lie.
 export const ROUTES = {
   // Attackers push from south spawn to a site.
   toA: [
@@ -143,6 +163,14 @@ export const ROUTES = {
   ],
 };
 
+// createWorld — build the yard. One function, in order: materials, the
+// floor and outer walls, the lane dividers, the two site pockets, the mid
+// crates and the central container, the lane cover, the spawn cover, the
+// site pads, and the lights. Every box() call is a mesh plus a collider
+// plus a shootable, so the three lists can never disagree about what is
+// solid. The return value is the world's contract with main.js: colliders
+// for movement, shootables for bullets and bot sight, and the sites,
+// spawns and routes the game logic needs.
 export function createWorld(scene) {
   const group = new THREE.Group();
   scene.add(group);
@@ -162,7 +190,12 @@ export function createWorld(scene) {
   const colliders = [];
   const shootables = [];
 
-  function box(width, height, depth, x, y, z, material) {
+  // box — one solid: a mesh at a position, casting and receiving shadows,
+// registered as a collider and a shootable. The collider is a Box3 taken
+// from the mesh, so the collision box is exactly the visible box — a
+// crate you can see is a crate you cannot walk or shoot through, and
+// there is no invisible wall anywhere in the yard.
+function box(width, height, depth, x, y, z, material) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
@@ -187,6 +220,13 @@ export function createWorld(scene) {
   box(48.4, 5, 0.4, 0, 2.5, 20.2, materials.surface); // south wall
 
   // --- Lane dividers: container stacks that split the yard into A-long, Mid, B-long.
+  // The dividers are the map's spine: three parallel walls of stacked
+  // containers that turn one open yard into three lanes, each its own
+  // fight. A wall of containers is taller than a player (3 m), so a lane
+  // cannot be shot across — the only way to change lanes is the gap at
+  // z 2..6, a doorway in the middle of the map that both teams watch. The
+  // gap is the map's most dangerous ground: crossing it means leaving a
+  // lane and entering the mid yard in the open.
   // West divider (between A-long and Mid), with a gap at z 2..6 so players can cross.
   box(0.8, 2.6, 8, -12, 1.3, -8, rust);
   box(0.8, 2.6, 6, -12, 1.3, 6, rust);
@@ -235,7 +275,12 @@ export function createWorld(scene) {
   box(3.2, 1.1, 0.8, 6, 0.55, 14, materials.hairline);
 
   // --- Bomb site pads: flat painted borders on the ground, readable at a glance.
-  function sitePad(site) {
+  // sitePad — the plant zone made visible: a translucent amber plane the
+// size of the site, plus two border bars at its north and south edges.
+// The pad sits 0.02 m above the floor (no z-fighting) and the borders
+// 0.03 m up, so the zone reads from any angle and any distance without
+// ever blocking movement — it is paint, not geometry.
+function sitePad(site) {
     const pad = new THREE.Mesh(
       new THREE.PlaneGeometry(site.radius * 2, site.radius * 2),
       new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.accent), transparent: true, opacity: 0.14, side: THREE.DoubleSide }),

@@ -31,11 +31,25 @@
 // module is created lazily on the first user gesture (browsers block audio
 // before one) and every sound is a short function, so the game never waits on
 // a network fetch for a sound.
+// createAudio — the sound system: one AudioContext, one master gain, one
+// noise buffer, and a method per sound. The context is created suspended
+// (browsers forbid audio before a gesture) and ensure() resumes it on the
+// first click, so the first sound is the click itself, not an error. The
+// master gain sits at 0.9, one notch below full, so a shot plus an
+// explosion plus a footstep never clips. There is no music: the game is
+// footsteps, shots, beeps and the bomb's tick, and silence between them
+// is information.
 export function createAudio() {
   let ctx = null;
   let master = null;
 
-  function ensure() {
+  // ensure — create the AudioContext on first use (browsers block audio
+// before a user gesture, so the game calls this from the play click, not
+// from boot). Returns false when there is no AudioContext at all, so the
+// game can run silent instead of crashing. The master gain is fixed at
+// 0.35: loud enough to hear footsteps, quiet enough that a close shot
+// never clips.
+function ensure() {
     if (ctx) return true;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -50,14 +64,25 @@ export function createAudio() {
     return true;
   }
 
-  function noiseBuffer(duration) {
+  // noiseBuffer — a buffer of white noise, made fresh per call: a few
+// kilobytes for a fraction of a second of sound. White noise is the raw
+// material for every percussive sound in the game — the filter and the
+// envelope decide whether it is a shot, a blast or a footstep.
+function noiseBuffer(duration) {
     const buffer = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * duration)), ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
     return buffer;
   }
 
-  function playNoise(duration, filterFreq, gain, when = 0) {
+  // playNoise / playTone — the two primitives everything is built from.
+// playNoise is a buffer of white noise through a low-pass filter with an
+// exponential decay: the crack of a shot, the blast of an explosion, the
+// puff of a footstep. playTone is an oscillator (sine, square or sawtooth)
+// with an optional frequency slide and the same decay: clicks, beeps, the
+// hurt sawtooth, the round arpeggios. Both schedule at ctx.currentTime +
+// `when`, so a two-note sound is two calls with a delay, not a timer.
+function playNoise(duration, filterFreq, gain, when = 0) {
     if (!ensure()) return;
     const t = ctx.currentTime + when;
     const source = ctx.createBufferSource();
@@ -73,7 +98,12 @@ export function createAudio() {
     source.stop(t + duration);
   }
 
-  function playTone(freq, duration, type, gain, slideTo = 0, when = 0) {
+  // playTone — one oscillator with an optional slide: type (sine for pure
+// tones, square for clicks and beeps, sawtooth for the hurt sound),
+// frequency, duration, gain, slide target and delay. The exponential
+// ramp to 0.001 is the envelope: without it a tone would click off, and
+// with it every sound ends cleanly.
+function playTone(freq, duration, type, gain, slideTo = 0, when = 0) {
     if (!ensure()) return;
     const t = ctx.currentTime + when;
     const osc = ctx.createOscillator();
@@ -90,16 +120,34 @@ export function createAudio() {
 
   return {
     ensure,
-    shot(kind) {
+    // shot — one gunshot, by kind: the sniper is longer and lower, the SMG
+// shorter and brighter, everything else the middle recipe. The square
+// thump under the noise is what makes a shot feel like a shot instead of
+// a burst of static: the noise is the crack, the thump is the body.
+shot(kind) {
       if (kind === 'sniper') playNoise(0.28, 900, 0.9);
       else if (kind === 'smg') playNoise(0.08, 2200, 0.5);
       else playNoise(0.12, 1600, 0.7);
       playTone(160, 0.08, 'square', 0.25, 60);
     },
-    enemyShot() {
+    // The small sounds, each one call: enemyShot is a quiet dull burst so
+// distant fire reads as distant; reload is two clicks; empty is one high
+// click; hit is a blip and kill adds a higher second blip; hurt is a
+// sawtooth falling 220 → 110 Hz; plant is two beeps; beep is the bomb's
+// tick; defuse is two lower beeps; buy is a two-note chime; step is a
+// 0.04 s low puff. Each is a sentence of the game's language: the player
+// learns to hear a kill, a plant, a reload without looking.
+enemyShot() {
       playNoise(0.1, 1200, 0.25);
     },
-    reload() {
+    // reload / empty / hit / kill / hurt — the combat feedback sounds.
+// Reload is two clicks because a reload has two motions (magazine out,
+// magazine in). Empty is one high click: the gun saying "nothing left".
+// Hit is a blip; kill is the blip plus a higher second blip, so a kill
+// sounds like a hit plus something — the player hears the difference
+// before seeing the feed line. Hurt is a sawtooth falling an octave: the
+// sound of taking damage is the sound of something dropping.
+reload() {
       playTone(900, 0.04, 'square', 0.2);
       playTone(600, 0.04, 'square', 0.2, 0, 0.18);
     },
@@ -116,11 +164,22 @@ export function createAudio() {
     hurt() {
       playTone(220, 0.15, 'sawtooth', 0.3, 110);
     },
-    explosion() {
+    // explosion — the grenade and the bomb share one sound: a 0.9 s low noise
+// burst for the blast and a sine dropping 90 → 30 Hz for the pressure.
+// It is the loudest sound in the game (gain 1.0 and 0.8) because an
+// explosion is the loudest event in the game; everything else is mixed
+// under it.
+explosion() {
       playNoise(0.9, 300, 1.0);
       playTone(90, 0.8, 'sine', 0.8, 30);
     },
-    plant() {
+    // plant / beep / defuse / buy / step — the objective and economy sounds.
+// Plant is two beeps (the bomb armed), beep is the bomb's tick (faster
+// under 10 s, so the ticking itself is the countdown), defuse is two lower
+// beeps (the bomb disarmed), buy is a two-note chime (money well spent),
+// step is a 0.04 s puff every 0.38 s of movement (the player's own feet,
+// quiet enough to ignore, present enough to feel the speed).
+plant() {
       playTone(880, 0.08, 'square', 0.25);
       playTone(880, 0.08, 'square', 0.25, 0, 0.15);
     },
@@ -135,7 +194,11 @@ export function createAudio() {
       playTone(520, 0.07, 'sine', 0.25);
       playTone(780, 0.09, 'sine', 0.25, 0, 0.08);
     },
-    roundWin() {
+    // roundWin / roundLose — the match's punctuation: three sine notes, up
+// (523/659/784) for a win and down (392/330/262) for a loss, each 0.12–
+// 0.25 s, staggered. The direction of the arpeggio is the result: the
+// player hears which way the round went before reading the banner.
+roundWin() {
       playTone(523, 0.12, 'sine', 0.3);
       playTone(659, 0.12, 'sine', 0.3, 0, 0.12);
       playTone(784, 0.2, 'sine', 0.3, 0, 0.24);

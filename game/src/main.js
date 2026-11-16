@@ -116,6 +116,19 @@ const weapon = createWeapon(camera);
 const input = createInput(renderer.domElement, onLockChange);
 const bots = createBots(scene, world.colliders, world.shootables, random);
 
+// BOOT SEQUENCE — everything below runs once, in order, before the first
+// frame. Renderer (antialias, pixel ratio capped at 2, PCF soft shadows),
+// scene (warm background and fog), camera (74° FOV, 0.05–140 m), world,
+// audio, HUD, rounds, player, weapon, input, bots. Then the shared
+// raycaster and scratch vectors, the bomb mesh (hidden), the grenade
+// pool's geometry and material, and the 12-line tracer pool. Then the
+// teams: three attacker bots and four defender bots, wired to spawns and
+// routes. Then the player's own state (health, alive, primary, grenades,
+// kills, deaths) and the combined shootables list (world plus bot meshes).
+// Finally the camera sync, the match start, and either the capture (shot
+// mode) or the frame loop. Boot is deliberately linear: there is no async
+// work, no fetch, nothing that can arrive late and leave the game half
+// built.
 // The raycaster and the scratch vectors: allocated once, reused every shot.
 const raycaster = new THREE.Raycaster();
 raycaster.far = 120;
@@ -157,6 +170,12 @@ for (let i = 0; i < 12; i += 1) {
 }
 let tracerIndex = 0;
 
+// spawnTracer — fire one pooled tracer from muzzle to hit point: take the
+// next line in the ring (12 lines, reused round-robin), write its two
+// endpoints, show it for 0.06 s. The pool is fixed so a firefight cannot
+// allocate; the 13th tracer reuses the 1st, which is fine, because a
+// tracer lives only 0.06 s and 12 concurrent tracers is more than the
+// game's fire rate can produce.
 function spawnTracer(from, to) {
   const t = tracers[tracerIndex];
   tracerIndex = (tracerIndex + 1) % tracers.length;
@@ -169,6 +188,14 @@ function spawnTracer(from, to) {
 }
 
 // --- Teams and bots -------------------------------------------------------
+// The seven bots are named, not numbered, so the kill feed reads like a
+// match ("You eliminated Juno") instead of a log ("bot 3 eliminated bot
+// 5"). Attackers: Vex and Rook push the lanes, Iris pushes mid. Defenders:
+// Hale and Moss hold A, Juno and Kade hold B. The names are short,
+// distinct, and pronounceable — a feed line is read at a glance,
+// mid-fight, so a name that takes a second to parse is a name that fails.
+// The player takes spawn [0]; the three attacker bots take [1..3]. The
+// defender list is four bots, two per site, so each site starts defended.
 const attackerBots = [];
 const defenderBots = [];
 {
@@ -184,7 +211,12 @@ const defenderBots = [];
 }
 const allBots = attackerBots.concat(defenderBots);
 
-// The player's own state, kept in one place.
+// The player's own state: health (100, the only number that matters),
+// alive, the primary weapon id, grenades (0 to start — grenades are
+// bought, not given), kills and deaths. The player is a plain object,
+// not a class: the player has no behaviour of its own, only state, and
+// main.js is the behaviour. The weapon and the body live beside it —
+// weapon owns the gun, body owns the position, self owns the match facts.
 const self = {
   health: PLAYER_HEALTH,
   alive: true,
@@ -198,13 +230,16 @@ const shootables = world.shootables.concat(bots.hitMeshes);
 
 let elapsed = 0;
 let frozen = false;
-let started = false;
 let accumulator = 0;
 let lastTime = performance.now();
-let roundStarted = false;
 let beepTimer = 0;
 let stepTimer = 0;
 
+// siteAt — which bomb site, if any, a position stands in. A plant only
+// counts inside a site's 4.5 m radius, measured on the ground plane (x/z
+// only: height does not matter, so planting from on top of a crate inside
+// the site still counts, and the radius is generous enough that the channel
+// rarely fails on positioning). Returns the site object or null.
 function siteAt(pos) {
   for (const key of Object.keys(SITES)) {
     const site = SITES[key];
@@ -215,6 +250,16 @@ function siteAt(pos) {
   return null;
 }
 
+// resetRoundPositions — put every actor back at its spawn for a new round.
+// The player goes to attackers[0] with zero velocity, level aim and full
+// health, and re-equips the primary (or the pistol) with a full refill, so
+// a new round never inherits a half-empty magazine. Each bot is restored
+// alive with full health, a fresh route (attackers push, defenders hold),
+// its waypoint reset and its fall animation cleared. The bomb is hidden,
+// live grenades are removed from the scene, and the tracer pool is cleared.
+// Bots are reset from starts[] (attacker and defender spawns in team order);
+// the per-bot route list is restored from ROUTES so a defender that rotated
+// last round holds its site again.
 function resetRoundPositions() {
   body.position.copy(SPAWNS.attackers[0]);
   body.velocity.set(0, 0, 0);
@@ -224,8 +269,6 @@ function resetRoundPositions() {
   self.alive = true;
   weapon.equip(self.primary || 'pistol');
   weapon.refill();
-  const spawns = [];
-  for (const bot of allBots) spawns.push(bot.group.position.clone());
   // Reset bots to their spawn positions with fresh routes.
   const atkSpawns = [SPAWNS.attackers[1], SPAWNS.attackers[2], SPAWNS.attackers[3]];
   const defSpawns = [SPAWNS.defenders[0], SPAWNS.defenders[1], SPAWNS.defenders[2], SPAWNS.defenders[3]];
@@ -254,6 +297,11 @@ function resetRoundPositions() {
   }
 }
 
+// startMatch — reset the whole match: rounds, money, score, the player's
+// primary and grenades, kills and deaths, positions, and every HUD number.
+// Called once at boot and again from the match-end overlay's "Play again".
+// The buy menu opens immediately, so the first decision the player makes
+// is what to buy with $800 — the pistol round.
 function startMatch() {
   rounds.resetMatch();
   self.primary = null;
@@ -270,6 +318,13 @@ function startMatch() {
   hud.showBuy(true);
 }
 
+// endRoundCheck — the elimination end condition, checked every step while
+// the round is live. If no defender is alive, the attackers win; if no
+// attacker is alive (player included) and the bomb is not planted, the
+// defenders win. A planted bomb suspends the elimination loss: the round
+// is not over while the bomb ticks, because the defenders can still win by
+// defusing and the attackers by detonation. onRoundEnd pays out, banners
+// the reason and shows the match overlay when the match is over.
 function endRoundCheck() {
   if (rounds.state.phase !== 'live') return;
   const atkAlive = bots.aliveCount('attackers') + (self.alive ? 1 : 0);
@@ -287,6 +342,12 @@ function endRoundCheck() {
   }
 }
 
+// onRoundEnd — what happens the moment a round is decided: the win or
+// loss arpeggio, a banner naming the winner and the reason, the score and
+// money pushed to the HUD, the buy menu hidden, and — if that was the
+// fifth round — the match overlay with the final score and pointer lock
+// released. The next round starts from step(), not from here: the end
+// phase runs a 4 s timer and then calls nextRound + resetRoundPositions.
 function onRoundEnd() {
   const st = rounds.state;
   if (st.winner === 'attackers') audio.roundWin();
@@ -301,10 +362,15 @@ function onRoundEnd() {
   }
 }
 
+// onLockChange — pointer lock is the game's pause button. Gaining the lock
+// starts play (hides the overlay, ensures audio) and losing it pauses: the
+// overlay returns, unless the round just ended (then the end phase, not a
+// pause, owns the screen) or the match is over. Shot mode ignores lock
+// entirely — captures run without a user, so a lock change must never show
+// an overlay over a frozen capture frame.
 function onLockChange(locked) {
   if (shot) return;
   if (locked) {
-    started = true;
     hud.hideOverlay();
     audio.ensure();
   } else if (rounds.state.phase !== 'end' || rounds.state.matchOver) {
@@ -312,11 +378,20 @@ function onLockChange(locked) {
   }
 }
 
+// syncCamera — put the camera where the player's eyes are: position plus
+// eye height (which lerps on crouch), rotation from pitch/yaw in YXZ order
+// so yaw turns the body and pitch nods the head without rolling. Called
+// every frame and once per capture paint, so the frozen capture frame and
+// the live game always agree on the view.
 function syncCamera() {
   camera.position.set(body.position.x, body.position.y + body.eye, body.position.z);
   camera.rotation.set(body.pitch, body.yaw, 0, 'YXZ');
 }
 
+// aimAt — point the player's view at a world point (used by shot mode to
+// aim at a defender). Yaw comes from the x/z direction, pitch from the
+// vertical angle, both clamped by the same limits as mouse look. The camera
+// is synced immediately so the next paint shows the aim.
 function aimAt(point) {
   const dx = point.x - body.position.x;
   const dy = point.y - (body.position.y + body.eye);
@@ -328,6 +403,17 @@ function aimAt(point) {
 }
 
 // --- Shooting -------------------------------------------------------------
+// playerShoot — one trigger pull, start to finish. Take a round from the
+// magazine (an empty magazine clicks instead of firing); take the camera's
+// forward direction and perturb it by the weapon's spread (movement plus
+// bloom, jittered by the seeded RNG); raycast against the world and the
+// bots out to the weapon's range; spawn a pooled tracer from the muzzle to
+// the hit point (or to max range on a miss); resolve a bot hit as a body or
+// headshot, pay kill money and feed the kill, or — on a non-lethal hit —
+// turn the bot toward the shooter and mark the hit; then kick the view
+// model, recoil the camera, play the shot, and push ammo and crosshair gap
+// to the HUD. Semi-auto weapons clear the firing flag in frame(), so one
+// click is one shot; automatic weapons keep firing while held.
 function playerShoot() {
   if (!weapon.takeRound()) {
     audio.empty();
@@ -364,7 +450,6 @@ function playerShoot() {
       } else {
         audio.hit();
         // Being shot turns the bot toward the shooter.
-        bot.hearing = body.position;
         bot.target = { position: body.position, alive: true };
         bot.seenAt = elapsed;
         bot.lastSeen = elapsed;
@@ -380,6 +465,17 @@ function playerShoot() {
   return true;
 }
 
+// botShoot — one bot's shot at its target. The ray starts at the bot's
+// head height (y + 1.5) and aims at the target's chest (y + 1.2) with the
+// bot spread cone (wider while moving), out to 60 m. A tracer is pooled
+// from the muzzle. If the ray hits a bot first, that bot takes falloff
+// damage (head or torso) and the kill is fed; if it hits the world, the
+// shot stops there — bots cannot shoot through walls. The player is hit
+// only when the target is the player AND the hit point lands within 0.45 m
+// of the player's centre line between ankle and head (head above 1.4 m):
+// the ray may have hit a wall beside the player, so the proximity test is
+// what actually decides a player hit. Every bot shot plays the distant
+// enemy-shot sound, so the player hears firefights as well as seeing them.
 function botShoot(bot, target) {
   // A bot's shot: from its head toward the target's chest, with spread.
   const from = bot.position;
@@ -408,7 +504,6 @@ function botShoot(bot, target) {
     const dmg = bots.shotDamage(dist, part);
     const killed = bots.damage(hitBot, dmg, part);
     if (killed) {
-      const who = hitBot.team === 'attackers' && hitBot !== bot ? hitBot.name : hitBot.name;
       hud.feed(`${bot.name} eliminated ${hitBot.name}`);
     }
     return;
@@ -438,11 +533,26 @@ function botShoot(bot, target) {
 // A stable object the bots aim at when they target the player.
 const playerTarget = { position: body.position, alive: true };
 
+// damagePlayer — the player takes damage: health drops, the HUD and the
+// damage flash update, the hurt sound plays, and at zero the player is
+// down (deaths + 1, the player target dies so bots stop shooting at the
+// body, a feed line names the killer, a banner says the team fights on,
+// pointer lock is released and the round is re-checked — the team may
+// still win without the player). Damage is ignored once the player is
+// already down, so a dead player cannot be killed twice by one grenade.
 function damagePlayer(amount, source) {
   if (!self.alive) return;
   self.health -= amount;
   hud.setHealth(self.health);
   hud.damageFlash();
+  // Show where the damage came from: the angle from the player's facing
+  // to the threat, as a red marker on a ring around the crosshair. A
+  // grenade has no source, so it flashes without a direction.
+  if (source) {
+    const dx = source.position.x - body.position.x;
+    const dz = source.position.z - body.position.z;
+    hud.showDamageDirection(Math.atan2(-dx, -dz) - body.yaw);
+  }
   audio.hurt();
   if (self.health <= 0) {
     self.health = 0;
@@ -457,6 +567,11 @@ function damagePlayer(amount, source) {
 }
 
 // --- Grenades ---------------------------------------------------------------
+// throwGrenade — spend one grenade from the inventory and launch it: a
+// small dark sphere from the muzzle, thrown along the camera direction at
+// 16 m/s plus 4 m/s up, with a 2 s fuse. The throw plays the SMG shot
+// sound (the closest synthesized sound to a throw) and the grenade is
+// stepped by stepGrenades until its fuse runs out.
 function throwGrenade() {
   if (self.grenades <= 0 || !weapon.useGrenade()) return;
   camera.getWorldDirection(direction);
@@ -474,6 +589,15 @@ function throwGrenade() {
   audio.shot('smg');
 }
 
+// stepGrenades — fly every live grenade one step: gravity pulls at 18
+// (slightly less than the player's 20, so a throw arcs flat), and a bounce
+// is a reflection of the dominant velocity component at 0.4 (the grenade
+// loses energy each bounce and never gains it). The floor is special: a
+// grenade that dips below 0.07 m is set back onto it and damped (0.7 on
+// the horizontal axes), so grenades roll to a stop instead of jittering
+// through the floor. At fuse zero the grenade explodes where it is.
+// The probe box is 0.07 m half-size, the grenade's own radius, so a bounce
+// is tested against the grenade's body and not its centre.
 function stepGrenades(dt) {
   for (let i = grenades.length - 1; i >= 0; i -= 1) {
     const g = grenades[i];
@@ -510,6 +634,14 @@ function stepGrenades(dt) {
   }
 }
 
+// explodeGrenade — the blast: an expanding amber sphere that grows and
+// fades over ~0.3 s (a setInterval, not the fixed step, because the flash
+// is cosmetic and does not affect the simulation), plus damage. Damage is
+// 80 at 1 m falling linearly to 10 at 6 m, floored at 10, and only with
+// line of sight past 1.5 m — a bot behind a wall at 3 m takes nothing,
+// while a bot in the open at 3 m takes the blast. The player takes the
+// same blast at 0.6×, so a grenade at the player's own feet hurts but
+// rarely kills outright from full health.
 function explodeGrenade(pos) {
   audio.explosion();
   // Flash + a quick expanding ring (a scaled sphere that fades).
@@ -530,7 +662,6 @@ function explodeGrenade(pos) {
     }
   }, 30);
   // Damage: 80 at 1 m falling to 10 at 6 m, only with line of sight.
-  const targets = allBots.concat([null]);
   for (const bot of allBots) {
     if (!bot.alive) continue;
     const d = bot.position.distanceTo(pos);
@@ -549,6 +680,17 @@ function explodeGrenade(pos) {
 }
 
 // --- Bomb -------------------------------------------------------------------
+// stepBomb — the objective, every step while the round is live. Planting:
+// holding E inside a site advances the 3 s channel (the plant bar shows
+// the progress); leaving the site or releasing E resets it. A completed
+// plant puts the bomb mesh on the site pad, starts the 35 s timer, pays
+// the plant bonus, banners the plant, and reroutes every living defender
+// to the planted site. While planted: the bomb beeps (every 1 s, every
+// 0.5 s under 10 s) and its light blinks; a defender standing within 1.6 m
+// of the bomb defuses on a 5 s channel (the plant bar shows the defuser's
+// name); at zero the bomb detonates and the attackers win. The player
+// defuses nothing — defusing is the defenders' job, and the player is an
+// attacker.
 function stepBomb(dt) {
   const st = rounds.state;
   if (st.phase !== 'live') return;
@@ -626,6 +768,13 @@ function stepBomb(dt) {
 
 // --- Buy menu -----------------------------------------------------------------
 const OWNED = { rifle: false, smg: false, sniper: false };
+// buy — spend money in the buy phase. Grenades are consumable (each $300
+// adds one to the inventory); weapons are bought once per match (OWNED
+// tracks them, so a rifle bought in round one stays bought) and equipping
+// one refills it. Buying is refused outside the buy phase, without the
+// money, or for a weapon already owned — the menu cannot sell what the
+// player cannot use. Every successful buy plays the buy chime and pushes
+// money and ammo to the HUD.
 function buy(id) {
   const st = rounds.state;
   if (st.phase !== 'buy') return;
@@ -654,6 +803,14 @@ function buy(id) {
 hud.onBuy((id) => buy(id));
 
 // --- The fixed step -----------------------------------------------------------
+// step — one 1/60 s slice of the simulation. The round timer runs first
+// (buy 15 s, live 100 s, end 4 s), then the player moves (only while live
+// and alive, with a footstep every 0.38 s above 1 m/s), then every bot
+// steps with its enemies (defenders see the player and the attacker bots;
+// attackers see only the defender bots), then the weapon, grenades and
+// bomb step, tracers fade, the round is re-checked for elimination, and
+// the alive counts are pushed to the HUD. Dead bots still step — with no
+// enemies — so their fall animation plays out.
 function step(dt) {
   elapsed += dt;
   const st = rounds.state;
@@ -743,6 +900,15 @@ function step(dt) {
   playerTarget.alive = self.alive;
 }
 
+// frame — the render loop, called by requestAnimationFrame. While not
+// frozen it reads the mouse look, switches weapons on 1/2/3 (primary only
+// if bought, pistol always, grenade only if carried), applies the sniper
+// zoom (30° FOV while right-clicking), throws on G, toggles the buy menu
+// on B (buy phase only, releasing pointer lock so the menu can be
+// clicked), fires while held (semi-auto clears the flag after one shot),
+// reloads on R, and then runs the fixed steps (at most 5, accumulator
+// clamped) and syncs the camera. The render happens every call, frozen or
+// not, so a frozen capture frame keeps painting the same image.
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min((now - lastTime) / 1000, 0.1);
@@ -814,10 +980,34 @@ function frame(now) {
   renderer.render(scene, camera);
 }
 
+// settle — run the simulation forward a fixed number of steps with no
+// rendering. Shot mode uses it to put the world into a mid-round state
+// (bots walked out, shots fired) before the first paint, so a capture is
+// a scene, not a spawn frame. It is also the whole determinism story: the
+// same seed plus the same settle count is the same frame.
 function settle(steps) {
   for (let index = 0; index < steps; index += 1) step(FIXED_STEP);
 }
 
+// runShot — build one deterministic capture frame. The overlay and buy
+// menu are hidden, the round is forced live with a full timer, and the
+// player is levelled. For play/end the player stands in mid yard (0, 0, 8),
+// the world settles 30 steps (bots walk out), and the player fires four
+// shots at the third defender — the tracer, hitmarker and kill feed are
+// therefore real simulation results, not staged overlays. For end the bomb
+// is planted at A, the score is set 2–1, money $5400 and health 62, and
+// the world settles 20 more steps while defenders rotate. For start the
+// player stands at spawn (0, 0, 16), aims down mid, and the buy menu opens
+// with $800. Every branch ends by painting twice and freezing.
+// SHOT MODE — the entry's demo captures, not gameplay. ?shot=start
+// shows the buy menu (round 1, $800, pistol); ?shot=play shows a live
+// round (one elimination, a kill feed line, $3250); ?shot=end shows a
+// planted bomb at Site A with 62 health. The mode is driven by the URL
+// so the same build can be captured three ways without playing: the
+// capture script passes ?shot=...&seed=1 and waits for window.__shotReady.
+// The end shot's health is set on self.health (not the HUD) because
+// runShot ends by writing hud.setHealth(self.health) — a HUD-only write
+// would be overwritten with 100.
 function runShot(name) {
   hud.hideOverlay();
   hud.showBuy(false);
@@ -844,7 +1034,10 @@ function runShot(name) {
       hud.setBomb('BOMB PLANTED — Site A');
       hud.setScore(2, 1);
       hud.setMoney(5400);
-      hud.setHealth(62);
+      // Health is set on the player, not the HUD: runShot ends with
+      // hud.setHealth(self.health), so a HUD-only write here would be
+      // overwritten with 100. Setting self.health makes the 62 stick.
+      self.health = 62;
       settle(20);
     } else {
       hud.setMoney(3250);
@@ -866,6 +1059,12 @@ function runShot(name) {
   paintTwiceThenReady();
 }
 
+// paintTwiceThenReady — render two frames, then freeze and announce the
+// capture. Two paints, not one: the first lets the renderer compile and
+// the HUD settle, the second is the frame the screenshot takes. Setting
+// window.__shotReady tells the capture harness the frame is final; frozen
+// stops the simulation (frame() keeps rendering the same image, so the
+// capture cannot catch a half-stepped world).
 function paintTwiceThenReady() {
   let painted = 0;
   function paint() {

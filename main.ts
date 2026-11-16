@@ -47,3 +47,11 @@ writeFileSync(
   join(out, 'dossier.json'),
   buildDossier(out, { text_max_bytes: 163840, screenshots: { max: 4, max_bytes: 262144 }, game_max_files: 993, game_max_bytes: 50331648 }),
 );
+
+// How to verify locally before submitting: serve it (node serve.ts),
+// open http://localhost:8080 and play a round (buy, shoot, plant), then
+// take the three captures (?shot=start|play|end&seed=1) and rebuild the
+// dossier (MAKEFUN_OUTPUT_DIR=out node main.ts). The dossier must stay
+// under the caps above, the screenshots under 256 KiB each, and the game
+// under 993 files / 48 MiB. If a change breaks the game, the captures show
+// it before the grader does.

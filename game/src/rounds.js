@@ -56,6 +56,16 @@
 //   player's hands. The plant site is whichever site the player stands in.
 //   While the bomb is planted the round timer stops and the bomb timer runs.
 //   Defenders are told (a banner and a sound) and rotate to the planted site.
+// ROUND — the match's numbers in one place. BUY 15 s (shop and move),
+// LIVE 100 s (fight), BOMB 35 s (the defuse window), PLANT 3 s and
+// DEFUSE 5 s (a defuse takes longer than a plant — the defenders'
+// disadvantage is the clock, not the fight), WIN_ROUNDS 5 (first to five,
+// no overtime), WIN_MONEY 3250 and LOSS_MONEY 1900 (winning buys the next
+// round's gun, losing still buys something), KILL_MONEY 300 and
+// PLANT_MONEY 300 (the same $300 for a kill and a plant — both are
+// round-winning acts), START_MONEY 800 (a pistol round by design: the
+// first round is a pistol round, the second is the first buy round).
+// Change one number and the whole match economy moves with it.
 export const ROUND = {
   BUY_SECONDS: 15,
   LIVE_SECONDS: 100,
@@ -91,7 +101,10 @@ export function createRounds() {
 
   return {
     state,
-    startBuy() {
+    // startBuy — open the buy phase: 15 s on the timer, bomb state cleared,
+// channels cleared. Called at match start and at every round start, so
+// a round never inherits a planted bomb or a half-finished channel.
+startBuy() {
       state.phase = 'buy';
       state.timer = ROUND.BUY_SECONDS;
       state.planted = false;
@@ -100,27 +113,50 @@ export function createRounds() {
       state.defuseProgress = 0;
       state.defusing = null;
     },
-    startLive() {
+    // startLive — the round goes live: 100 s on the timer. Called when the buy
+// timer hits zero, not by a button — the round starts when the buy phase
+// ends, whether the player finished shopping or not.
+startLive() {
       state.phase = 'live';
       state.timer = ROUND.LIVE_SECONDS;
     },
-    plant(site) {
+    // plant — the bomb is down: planted at the named site, 35 s on the bomb
+// timer, the plant channel cleared, and the $300 plant bonus paid. The
+// site name is stored, not the position, because the bomb mesh and the
+// defender rotation both key off the site.
+plant(site) {
       state.planted = true;
       state.plantedSite = site;
       state.bombTimer = ROUND.BOMB_SECONDS;
       state.plantProgress = 0;
       state.money += ROUND.PLANT_MONEY;
     },
-    detonate() {
+    // detonate / defused — the two planted-bomb endings. Detonation clears
+// the planted flag and ends the round for the attackers ("Bomb
+// detonated"); a defuse clears the planted flag and the defuse progress
+// and ends it for the defenders ("Bomb defused"). Both go through
+// endRound, so the payout, the banner and the match-over check happen in
+// exactly one place.
+detonate() {
       state.planted = false;
       this.endRound('attackers', 'Bomb detonated');
     },
-    defused() {
+    // defused — the bomb is disarmed: planted cleared, defuse progress
+// cleared, round to the defenders. The bomb mesh is hidden by main.js;
+// this module only owns the state, so the two cannot disagree about
+// whether a bomb is planted.
+defused() {
       state.planted = false;
       state.defuseProgress = 0;
       this.endRound('defenders', 'Bomb defused');
     },
-    endRound(winner, reason) {
+    // endRound — decide a round, once: the phase becomes end (a second call
+// is ignored, so a detonation and an elimination in the same step cannot
+// pay out twice), the reason is recorded for the banner, the end timer
+// runs 4 s, the score increments, the payout lands (win $3250, loss
+// $1900), and at 5 rounds the match is over. Money is paid here and
+// nowhere else, so the economy has exactly one source of truth.
+endRound(winner, reason) {
       if (state.phase === 'end') return;
       state.phase = 'end';
       state.endReason = reason;
@@ -133,14 +169,26 @@ export function createRounds() {
         state.matchOver = true;
       }
     },
-    addKillMoney() {
+    // addKillMoney / nextRound — the two small transactions: +$300 for a kill
+// (paid immediately, so the HUD money jumps on the kill feed's line) and
+// the round counter advancing into a fresh buy phase. nextRound does not
+// reset positions or the HUD — main.js owns that, in step()'s end-phase
+// branch, so the round transition has one caller.
+addKillMoney() {
       state.money += ROUND.KILL_MONEY;
     },
-    nextRound() {
+    // nextRound — advance the counter and open the next buy phase. The score
+// and money carry over (a match is an economy across rounds, not a fresh
+// start each round), and the match-over flag is untouched: a match that
+// is over stays over, and nextRound is never called for it.
+nextRound() {
       state.round += 1;
       this.startBuy();
     },
-    resetMatch() {
+    // resetMatch — the whole match back to the start: round 1, 0–0, $800,
+// nothing over, no winner, no reason, buy phase open. Called by
+// startMatch, which then resets positions and the HUD on top.
+resetMatch() {
       state.round = 1;
       state.score.attackers = 0;
       state.score.defenders = 0;
