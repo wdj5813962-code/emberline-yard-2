@@ -1,3 +1,46 @@
+// BOT AI — design notes.
+//
+// THE MIND, IN PRIORITY ORDER. Every bot runs the same step, once per fixed
+// step, and the first matching state wins:
+//   dead    — down, out of the round; the body falls over (0.4 s) and stays.
+//   combat  — an enemy is visible. Stop, face it, fire in bursts. The burst
+//             is inaccurate on purpose: a bot that never missed would be
+//             unbeatable, and a bot that never hit would be a target dummy.
+//   rotate  — the bomb is planted at the other site (defenders only). Walk
+//             the rotate route to the planted site instead of holding.
+//   move    — walk the route's waypoints. At the last waypoint, hold.
+//   hold    — at the end of the route, stand and scan slowly (±0.7 rad at
+//             0.5 rad/s), waiting for an enemy to walk into view.
+//
+// VISION. A bot sees an enemy when all three hold: within 45 m, inside a
+// 100-degree cone in front of it (half-angle 0.87 rad), and a ray from its
+// eyes to the enemy's chest hits nothing but the enemy. The ray is the
+// expensive part, so it is checked at most every 0.15 s per bot, staggered by
+// a random offset, never every frame for every bot. Only the world's
+// shootables block the ray — other bots do not, so a bot can see past a
+// teammate. A bot that is shot turns toward the shooter: playerShoot sets
+// its target to the player directly, because a bot that ignores being shot
+// at reads as a target dummy.
+//
+// SHOOTING. A bot fires hitscan with a spread cone (0.035 rad, +0.02 while
+// moving) and damage falloff: 30 body / 85 head at close range, halved past
+// 25 m and out to 45 m. It fires in bursts of 3–5 shots (0.13 s apart) with
+// a 0.55 s pause between bursts, and it waits out a 0.45 s reaction delay
+// after first sighting a target — the player gets a beat to react before the
+// first burst lands. Accuracy is worse while the bot is moving, so a bot
+// that is pushing a lane is less dangerous than one holding an angle.
+//
+// MOVEMENT. Bots walk at 3.4 m/s along straight segments between waypoints
+// and count a waypoint reached within 0.6 m. They do not collide with the
+// world (their routes stay in open lanes) and they do not collide with each
+// other; the routes are designed so teammates rarely stack. Legs swing with
+// a walk phase while moving and snap back to zero while holding or fighting.
+//
+// TUNING RATIONALE. The numbers above are the difficulty: reaction 0.45 s
+// plus burst spread means a single bot rarely kills a healthy player before
+// the player can answer, but two bots focusing fire will. Defenders hold
+// sites and rotate on plant; attackers push lanes. The asymmetry is the game:
+// attackers have the initiative and the bomb, defenders have the angles.
 // Bots: the other nine players. Three attacker teammates and four defenders
 // (the player is the fourth attacker). A bot is a body with a route, a gun and
 // a simple mind: walk the route, look for enemies, shoot what it sees.

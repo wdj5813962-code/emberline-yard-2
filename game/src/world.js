@@ -1,3 +1,45 @@
+// MAP DESIGN — why the yard is shaped this way.
+//
+// THE IDEA. Three lanes, two sites, one mid. The lanes are separated by
+// container stacks and walls so each lane is its own fight, but the mid yard
+// connects them all: a player can rotate from A to B through mid without
+// going back to spawn. That is the whole tactical shape — commit to a lane,
+// or pay time to rotate.
+//
+// SIGHTLINES. Long down the lanes (good for rifles: A-long and B-long run
+// the full 40 m depth) and short inside the sites (good for SMGs and the
+// bomb plant: the site pockets are ~9 m across). The central double-stacked
+// container (2.6 m tall) blocks sight across mid, so mid is a crossroads
+// with cover, not a firing line. The lane dividers leave a gap at z 2..6 so
+// players can cross between lanes without retreating to spawn.
+//
+// COVER HEIGHTS. Two heights only: crates at 1.1 m (crouch cover — a
+// crouching player is hidden behind a crate and a standing player is not)
+// and walls/containers at 2.4–2.6 m (full cover that blocks sight and shots).
+// Every box is both a collider (player and bots) and a shootable (bullets
+// stop on it), so cover is honest: if you cannot see over it, you cannot
+// shoot over it, and neither can the bots.
+//
+// THE SITES. Each site is a walled pocket with two entrances, so a plant
+// can be covered from two angles and a retake has two ways in. The plant
+// zone is a marked pad (a flat amber plane with a painted border), not
+// geometry: the plant spot is readable at a glance, and the 4.5 m radius is
+// generous enough that the plant channel rarely fails on positioning. Crates
+// inside each site give the planter crouch cover around the pad.
+//
+// SPAWNS. Attackers start south (z +16..18), defenders north (z −16..−17),
+// each as a list of positions so teammates do not stack on one point.
+// Attacker spawn has two low walls so the spawn itself is not a firing
+// line down mid. Defender spawns sit just behind their sites, so defenders
+// reach a hold position in a few seconds while attackers need ~10 s to
+// arrive — the defenders' head start is what makes holding possible.
+//
+// LIGHT. A warm late-afternoon key (2.6, from the south-east), a cool fill
+// (0.5, from the north-west) and a sky/ground hemisphere gradient (1.5).
+// Shadows are 2048 px over a 60 m ortho box — big enough for the whole yard,
+// small enough to stay sharp. Fog (35–85 m) warms the distance without
+// hiding the far wall: the yard is 48 m wide, so the far side is always
+// visible, just hazed.
 // Emberline Yard: an original industrial yard map for a round-based tactical FPS.
 //
 // LAYOUT (x east-west, z north-south; north is -z, so defenders spawn at -z and

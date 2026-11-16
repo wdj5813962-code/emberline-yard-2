@@ -1,3 +1,36 @@
+// MOVEMENT FEEL — acceleration, not velocity snapping.
+//
+// THE MODEL. The player is a box (radius 0.34, height 1.72 standing, 1.12
+// crouched) moved by acceleration, not by setting velocity directly. On the
+// ground the velocity blends toward the wish direction at 42/s; in the air
+// at 9/s, so air control exists but is weak. With no input on the ground,
+// friction damps the velocity at 9/s. The result is weight: the player
+// accelerates into a strafe, stops with a short slide, and cannot turn on
+// a dime mid-jump. Walk speed is 5.2 m/s, crouch speed 2.4 m/s.
+//
+// THE SPEEDS, IN MAP TERMS. At 5.2 m/s the player crosses the 40 m yard in
+// ~8 s and reaches a site from spawn in ~10 s — long enough that defenders
+// can set up, short enough that a rotate through mid is always an option.
+// Jump speed 6.2 m/s against gravity 20 m/s² gives a ~0.96 m hop: enough to
+// clear a 1.1 m crate only with a jump onto it (the crate top is the
+// landing), never to jump over a 2.4 m wall. Falling speed clamps at −30.
+//
+// COLLISION, ONE AXIS AT A TIME. Movement is resolved X, then Z, then Y,
+// each against the world's colliders as a box test. Moving one axis at a
+// time means a wall never swallows the player: sliding along a wall works
+// because the blocked axis zeroes its velocity while the free axis still
+// moves. The probe box is lifted by a small amount (0.04 m) in the
+// horizontal tests so standing on the floor is not read as walking into a
+// wall, and the vertical test snaps the player onto the highest collider
+// top when falling (position.y = hit.max.y) and pushes the head down when
+// jumping into a ceiling (position.y = hit.min.y − height).
+//
+// CROUCH. Ctrl or C toggles a crouch that halves the height and drops the
+// eye from 1.60 m to 1.02 m (lerped at 12/s, so the view dips smoothly
+// instead of snapping). Standing up is refused while a 1.72 m box would
+// intersect something — the player cannot stand up inside a crate. Crouch
+// speed is 2.4 m/s and crouching behind a 1.1 m crate hides the player:
+// that is the point of the crates.
 // Player movement: acceleration, friction, gravity, crouch and jump, resolved as a box against
 // the world's colliders one axis at a time, so a wall never swallows the player.
 import * as THREE from 'three';

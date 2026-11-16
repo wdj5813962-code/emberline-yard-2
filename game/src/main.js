@@ -1,3 +1,56 @@
+// ARCHITECTURE — how the pieces fit together.
+//
+//   main.js    boot, the fixed-step loop, shooting, grenades, the bomb, shot mode.
+//   world.js   the map: geometry, colliders, shootables, sites, spawns, bot routes.
+//   input.js   keyboard/mouse, pointer lock, edge-triggered keys.
+//   player.js  movement: accel, friction, gravity, crouch/jump, axis-separated collision.
+//   weapon.js  five weapons: stats, view models, spread/bloom, reload, zoom, grenades.
+//   bots.js    seven bots: routes, vision, burst fire, rotation, death animation.
+//   rounds.js  the match state machine: buy -> live -> end, money, the bomb timers.
+//   hud.js     the DOM HUD: push-only setters with caching, overlay and buy menu.
+//   audio.js   synthesized Web Audio: no audio files, lazy AudioContext.
+//
+// THE LOOP. The simulation runs at a fixed 60 Hz and rendering runs at the
+// display's rate. frame() accumulates real time, runs step() in 1/60 s slices
+// (at most 5 per frame, with the accumulator clamped so a slow frame cannot
+// spiral), then renders. step() moves the player, the bots, the grenades and
+// the bomb, and updates the HUD numbers. Nothing in step() or frame() allocates
+// in the hot loop: the raycaster, the direction/muzzle/hitPoint vectors and the
+// 12 tracers are allocated once at the top and reused, and bot vision raycasts
+// are staggered at most every 0.15 s per bot. The only per-event allocations
+// are a grenade mesh on throw and the short-lived explosion flash.
+//
+// DETERMINISM. One seeded RNG (mulberry32, seed from ?seed=) drives weapon
+// spread, recoil jitter, bot burst lengths and bot vision staggering, so the
+// same seed replays the same capture. Shot mode (?shot=start|play|end) runs
+// settle() — a fixed number of step() calls with no rendering — then paints
+// twice and freezes, setting window.__shotReady. A capture is therefore a
+// deterministic frame, not a lucky one.
+//
+// TEAMS. The player is the fourth attacker. Three attacker bots push the
+// lanes on waypoint routes; four defender bots hold the sites. Each bot's
+// enemies are the opposing team's bots plus the player (defenders only: an
+// attacker bot never shoots the player, because the player is on its team).
+// Bot-vs-bot damage and player damage are both resolved by raycast in
+// botShoot, so a bot can kill another bot and the kill feed stays honest.
+//
+// SHOOTING. The player's shot is a hitscan ray from the camera with spread
+// from weapon.spread (movement + bloom). It tests shootables (world boxes and
+// the floor) plus the bots' torso/head meshes; a head sphere hit is a
+// headshot. A tracer line is pooled from muzzle to hit point. Bot shots use
+// the same shape with a wider spread cone and damage falloff past 25 m.
+//
+// THE BOMB. Only the player plants (holding E inside a site, 3 s channel).
+// While planted the round timer stops and the 35 s bomb timer runs; defenders
+// are rerouted to the planted site and a defender standing beside the bomb
+// defuses it (5 s channel). Detonation, defuse, elimination or timeout ends
+// the round; money is paid out and the next buy phase starts. First to 5.
+//
+// HUD AND AUDIO. main.js pushes numbers into hud.js and reads callbacks out
+// (buy clicks, play clicks); hud.js never touches the simulation. Every HUD
+// setter caches its last value and skips the DOM write when nothing changed.
+// Audio is synthesized with Web Audio on first user gesture; there are no
+// audio files to fetch, so the game never waits on the network for a sound.
 // Boot and the one loop: a fixed 60 Hz simulation feeding a render at the display's rate.
 // ?shot=start|play|end with &seed=N sets up a deterministic frame for a capture, renders it
 // twice, then freezes it and sets window.__shotReady.

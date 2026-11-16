@@ -1,3 +1,33 @@
+// ECONOMY AND MATCH DESIGN — the money, and why it works this way.
+//
+// THE PAYOUTS. Round win +3250, round loss +1900, kill +300, plant +300.
+// The player starts with $800: enough for a pistol round or a grenade, not
+// a rifle. That gap is the whole economy — the buy menu matters because the
+// rifle costs $2500 and the player cannot afford it in round one, and the
+// loss payout matters because a lost round still pays $1900, so two losses
+// buy a rifle. Without the loss payout the economy would snowball: the team
+// that wins round one would out-gun the other forever.
+//
+// THE PRICES. Rifle $2500 is one won round ($3250) with change; SMG $1500
+// is the half-buy after a loss; sniper $4000 needs a win plus a kill or a
+// plant; grenade $300 is the spare-change buy. A player who wins, kills
+// twice and plants has $3250 + $600 + $300 = $4150: a rifle, a grenade and
+// money left over. The numbers are tuned so the choice is always real —
+// there is no round where the correct buy is obvious.
+//
+// ROUND FLOW. buy (15 s) -> live (100 s) -> end (4 s banner) -> next buy.
+// The buy phase is the only time the shop is open; bots do not buy, they
+// keep the rifle, so the player's economy is the player's alone. The live
+// timer stops while the bomb is planted and the 35 s bomb timer runs
+// instead — the round cannot end on time while the bomb ticks, so a late
+// plant is always worth attempting.
+//
+// END CONDITIONS. The round ends when one team is eliminated, the bomb
+// detonates (attackers win), the bomb is defused (defenders win), or time
+// expires (defenders win, unless the bomb is planted — then the bomb
+// decides). First to 5 rounds wins the match; there is no overtime, so a
+// 4–4 round is match point for both teams and the buy that round is the
+// most expensive decision in the game.
 // Rounds: the match state machine. One round is freeze (buy) -> live -> end,
 // then the next round. The bomb is the objective; elimination is the fallback.
 //

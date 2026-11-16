@@ -1,3 +1,30 @@
+// SOUND DESIGN — every sound is synthesized, no audio files.
+//
+// THE RECIPES. A gunshot is a noise burst through a low-pass filter plus a
+// short square thump (160 Hz sliding to 60 Hz): the noise is the crack, the
+// thump is the body. Each weapon's shot differs only in the filter and the
+// length — the sniper is longer and lower (0.28 s, 900 Hz), the SMG is
+// shorter and brighter (0.08 s, 2200 Hz), the rifle sits between them
+// (0.12 s, 1600 Hz). An enemy shot is a quieter, duller burst (0.1 s,
+// 1200 Hz, gain 0.25) so distant fire reads as distant. A reload is two
+// short square clicks (900 Hz, then 600 Hz 0.18 s later). An empty magazine
+// is a single high click. A hit is a 2000 Hz sine blip; a kill adds a
+// second, higher blip. Taking damage is a sawtooth falling 220 → 110 Hz.
+// An explosion is a 0.9 s low noise burst plus a sine dropping 90 → 30 Hz.
+// The plant is two beeps, the bomb beep is one, the defuse is two lower
+// beeps, the buy is a two-note chime, and a round win/loss is a three-note
+// arpeggio (523/659/784 up for a win, 392/330/262 down for a loss).
+// Footsteps are a 0.04 s low noise puff, quiet (gain 0.06), every 0.38 s
+// while moving — present enough to feel, quiet enough to ignore.
+//
+// THE PLUMBING. The AudioContext is created lazily on the first user
+// gesture (browsers block audio before one) and the master gain sits at
+// 0.35. Every sound is a short function that builds its nodes, starts them
+// and lets them die: a noise buffer is made per call (a few kilobytes, a
+// few milliseconds), envelopes are exponential ramps to 0.001, and nothing
+// is kept alive between sounds. There are no audio files to fetch, so the
+// game never waits on the network for a sound, and the whole soundscape
+// costs a few dozen lines instead of a folder of samples.
 // Audio: every sound is synthesized with Web Audio, no audio files. A gunshot
 // is a noise burst through a low-pass filter; a reload is two short clicks; an
 // explosion is a low sine drop with noise; a plant beep is a square blip. The

@@ -1,3 +1,37 @@
+// WEAPON BALANCE — the numbers and why.
+//
+// THE ARSENAL. Five buys, one interface. Each weapon has a role, and the
+// price is the role's cost:
+//   P9 pistol   — free. The fallback: 26 body / 78 head, 12/36, semi-auto.
+//                 A headshot plus a body shot kills; the pistol round is
+//                 winnable, which is why the player starts with $800.
+//   AR-7 rifle  — $2500. The workhorse: 34 body / 100 head, 30/90, auto.
+//                 A headshot kills outright; three body shots kill. The
+//                 rifle is the default buy after a won round.
+//   VX-9 SMG    — $1500. Fast and close: 24 body / 72 head, 32/96, auto,
+//                 0.07 s between shots. Five body shots to kill, but the
+//                 fire rate forgives misses. The site-clearing gun.
+//   L-88 sniper — $4000. One shot, slow: 90 body / 180 head, 5/15, bolt.
+//                 A body shot nearly kills; a headshot always kills. The
+//                 zoom (30° FOV on right-click) and the 1.1 s fire gap are
+//                 the price of that power, and it cannot fire accurately
+//                 while moving fast (spread 0.05 on the move).
+//   Frag        — $300. Thrown, not fired: arcs under gravity, bounces once,
+//                 detonates after a 2 s fuse. 80 damage at 1 m falling to
+//                 10 at 6 m, only with line of sight past 1.5 m.
+//
+// SPREAD AND BLOOM. Spread grows with movement speed (spreadStill on
+// standing still, spreadMove at full speed) and with sustained fire
+// (bloom per shot, capped at bloomMax, decaying when not firing). The
+// lesson is mechanical: stop to shoot straight, tap instead of holding.
+// The crosshair gap in the HUD is driven by the same spread number, so
+// what the player sees is what the gun does.
+//
+// FEEL. Each weapon has a view model built from boxes (receiver, barrel,
+// stock, grip, magazine, scope) and a muzzle flash: a plane plus a point
+// light that lives for 0.06 s. Firing kicks the model back (kick 0.055,
+// decaying) and pitches the camera up; reloading dips the model down.
+// The pistol is never sold, so the player always has a gun to fall back on.
 // Weapons: five buys, one interface. The numbers are the game balance; main.js
 // owns the ray and the damage, this module owns the feel.
 //

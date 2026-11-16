@@ -1,3 +1,14 @@
+// THE SERVER — a development convenience, not a web server.
+//
+// serve.ts serves game/ on http://localhost:8080 (node serve.ts --port
+// 8080) so the entry can be played locally without a build step. It sends
+// the MIME types a browser game needs (HTML, JS, CSS, JSON, images, GLB,
+// audio), refuses any path outside game/ (the resolved file must be the
+// root or under it, so .. cannot escape), returns 404 for anything that is
+// not a file, and sends cache-control: no-store so a changed file is never
+// a stale file while iterating. It binds 127.0.0.1 only: it is for one
+// developer on one machine, and it does nothing clever beyond that — no
+// directory listing, no uploads, no logging, no compression.
 // A tiny static server for game/ (Node 22, standard library only), so an entry can be played
 // locally without a build step: `node serve.ts` serves game/ on http://localhost:8080.
 // It sends the MIME types a browser game needs, refuses any path outside game/, and otherwise

@@ -5,7 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Emberline Yard — a three.js tactical FPS</title>
 <style>
-  /* Look plan: canvas, surface, hairline, ink, muted and one accent. Every colour below is one of the six. */
+  /* LAYOUT — the page is three layers over a fixed canvas.
+   *
+   *   #game    the WebGL canvas, fixed, full-viewport. The renderer appends
+   *            its canvas here; the game owns this layer entirely.
+   *   #hud     the in-game display: crosshair, hitmarker, damage flash,
+   *            topbar, kill feed, banner, plant bar, health, weapon name,
+   *            ammo. pointer-events none everywhere, so clicks fall through
+   *            to the canvas and the game keeps pointer lock.
+   *   #buy-menu a centred panel with pointer-events on, shown only in the
+   *            buy phase. It is the one HUD layer the player clicks.
+   *   #overlay  a centred panel over a dimmed yard: start, paused, round
+   *            end, match end. The dim is the canvas colour at 86% so the
+   *            yard stays faintly visible behind the panel.
+   *
+   * THE SYSTEM. Six colour variables (see palette.js), two radii (4px for
+   * panels, 8px for controls), two fonts (system-ui for prose, ui-monospace
+   * for readouts: timer, score, money, ammo, health). The crosshair is four
+   * ticks whose gap is a CSS variable driven by weapon spread; the
+   * hitmarker is the same four ticks rotated 45°, amber, red on kill. The
+   * health bar and plant bar are 6px tracks with a fill div. The buy grid
+   * is two columns of buttons with a name, a stat line and an amber price.
+   * A reduced-motion media query collapses the three transitions (hitmarker,
+   * play button, health fill) for players who ask for it.
+   *
+   * Look plan: canvas, surface, hairline, ink, muted and one accent. Every colour below is one of the six. */
   :root {
     --canvas: #1a1512;
     --surface: #2a2320;
